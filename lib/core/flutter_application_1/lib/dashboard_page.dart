@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'detail_page.dart';
+import 'profil.dart';
 
 class DashboardPage extends StatefulWidget {
   const DashboardPage({super.key});
@@ -399,7 +400,17 @@ class _DashboardPageState extends State<DashboardPage> {
         children: List.generate(items.length, (index) {
           final isSelected = _selectedNavIndex == index;
           return GestureDetector(
-            onTap: () => setState(() => _selectedNavIndex = index),
+            onTap: () {
+              if (index == 4) {
+                // Navigasi ke TampilanProfil jika ikon ke-5 (indeks 4) diklik
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => TampilanProfil()),
+                );
+              } else {
+                setState(() => _selectedNavIndex = index);
+              }
+            },
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
