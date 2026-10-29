@@ -35,7 +35,7 @@ dependencies:
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
   path_drawing: ^1.0.1
-  flutter_svg: ^2.3.0
+  flutter_svg: ^2.3.2
   google_fonts: ^6.2.1
 
 dev_dependencies:
@@ -60,12 +60,7 @@ flutter:
   # the material Icons class.
   uses-material-design: true
   assets:
-    - assets/logo.png
-    - assets/halaman_awal_bg.png
-    - assets/Kost-mahogani.png
-    - assets/Kost-mahonti.png
-    - assets/Kost-meranti.png
-    - assets/Interior-kamar.png
+    - assets/
 
   # To add assets to your application, add an assets section, like this:
   # assets:
