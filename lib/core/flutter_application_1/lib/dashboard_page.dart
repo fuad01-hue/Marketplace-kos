@@ -4,6 +4,8 @@ import 'notification_screen.dart';
 import 'profile_screen.dart';
 import 'search_page.dart';
 
+import 'profil.dart';
+
 class DashboardPage extends StatefulWidget {
   final bool isFavoriteView;
 
@@ -359,6 +361,74 @@ class _DashboardPageState extends State<DashboardPage> {
                     fontWeight: FontWeight.bold,
                   ),
                 ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+
+          // Lokasi
+          Text(
+            kost['location'],
+            style: const TextStyle(fontSize: 11, color: Colors.black54),
+          ),
+          const SizedBox(height: 6),
+
+          // Harga
+          Text(
+            isFavoriteTab ? kost['favPrice'] : kost['price'],
+            style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFF1E88E5),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBottomNav() {
+    final items = [
+      {'icon': Icons.search, 'label': 'Cari'},
+      {'icon': Icons.favorite_border, 'label': 'Favorit'},
+      {'icon': Icons.home_outlined, 'label': 'Beranda'},
+      {'icon': Icons.chat_bubble_outline, 'label': 'Chat'},
+      {'icon': Icons.person_outline, 'label': 'Profil'},
+    ];
+
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.06),
+            blurRadius: 10,
+            offset: const Offset(0, -2),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceAround,
+        children: List.generate(items.length, (index) {
+          final isSelected = _selectedNavIndex == index;
+          return GestureDetector(
+            onTap: () {
+              if (index == 4) {
+                // Navigasi ke TampilanProfil jika ikon ke-5 (indeks 4) diklik
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => TampilanProfil()),
+                );
+              } else {
+                setState(() => _selectedNavIndex = index);
+              }
+            },
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
                   decoration: BoxDecoration(
