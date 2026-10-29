@@ -1,22 +1,25 @@
 import 'package:flutter/material.dart';
 import 'detail_page.dart';
+import 'notification_screen.dart';
+import 'profile_screen.dart';
+import 'search_page.dart';
+
 import 'profil.dart';
 
 class DashboardPage extends StatefulWidget {
-  const DashboardPage({super.key});
+  final bool isFavoriteView;
+
+  const DashboardPage({
+    super.key,
+    this.isFavoriteView = false,
+  });
 
   @override
   State<DashboardPage> createState() => _DashboardPageState();
 }
 
 class _DashboardPageState extends State<DashboardPage> {
-  // Indeks tab BottomNavigationBar (2 = Beranda, 1 = Favorit)
-  int _selectedNavIndex = 2;
-
-  // Kategori filter yang sedang aktif di Beranda
   String _selectedCategory = 'Semua';
-
-  // Kata kunci pencarian
   String _searchQuery = '';
 
   final List<String> _categories = [
@@ -26,7 +29,6 @@ class _DashboardPageState extends State<DashboardPage> {
     'Campur',
   ];
 
-  // Data dummy sesuai desain Figma
   final List<Map<String, dynamic>> _allKosts = [
     {
       'name': 'Kost Meranti',
@@ -34,7 +36,7 @@ class _DashboardPageState extends State<DashboardPage> {
       'price': 'Rp. 700.000,00 / Bulan',
       'favPrice': 'Rp. 500.000,00 / Bulan',
       'type': 'Perempuan',
-      'image': 'assets/Kost-meranti.png', // Ganti sesuai nama file di folder assets
+      'image': 'assets/Kost-meranti.png',
       'isFavorite': true,
     },
     {
@@ -43,7 +45,7 @@ class _DashboardPageState extends State<DashboardPage> {
       'price': 'Rp. 700.000,00 / Bulan',
       'favPrice': 'Rp. 500.000,00 / Bulan',
       'type': 'Laki - Laki',
-      'image': 'assets/Kost-mahogani.png',
+      'image': 'assets/Kost-Mahogani.png',
       'isFavorite': true,
     },
     {
@@ -59,16 +61,16 @@ class _DashboardPageState extends State<DashboardPage> {
 
   @override
   Widget build(BuildContext context) {
-    final bool isFavoriteTab = _selectedNavIndex == 1;
+    final bool isFav = widget.isFavoriteView;
 
-    // Filter daftar kos berdasarkan tab, kategori, dan pencarian
+    // Filter data berdasarkan tab favorit, filter chip kategori, dan pencarian
     final filteredKosts = _allKosts.where((kost) {
       final matchesSearch = kost['name']
           .toString()
           .toLowerCase()
           .contains(_searchQuery.toLowerCase());
 
-      if (isFavoriteTab) {
+      if (isFav) {
         return kost['isFavorite'] == true && matchesSearch;
       }
 
@@ -81,42 +83,47 @@ class _DashboardPageState extends State<DashboardPage> {
       backgroundColor: const Color(0xFFF6F8FB),
       body: Column(
         children: [
-          // 1. HEADER BIRU & SEARCH BAR
-          _buildHeader(isFavoriteTab),
+          // 1. Header & Search Bar
+          _buildHeader(isFav),
 
-          // 2. TOMBOL FILTER KATEGORI (Hanya tampil di tab Beranda)
-          if (!isFavoriteTab) ...[
+          // 2. Filter Kategori (Hanya muncul di Beranda biasa)
+          if (!isFav) ...[
             const SizedBox(height: 12),
             _buildCategoryFilter(),
           ],
 
           const SizedBox(height: 12),
 
-          // 3. DAFTAR CARD KOS
+          // 3. List Kos
           Expanded(
-            child: ListView.builder(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-              itemCount: filteredKosts.length,
-              itemBuilder: (context, index) {
-                final kost = filteredKosts[index];
-                return _buildKostCard(kost, isFavoriteTab);
-              },
-            ),
+            child: filteredKosts.isEmpty
+                ? Center(
+                    child: Text(
+                      isFav
+                          ? 'Belum ada kos favorit'
+                          : 'Tidak ada kos ditemukan',
+                      style: const TextStyle(color: Colors.grey),
+                    ),
+                  )
+                : ListView.builder(
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                    itemCount: filteredKosts.length,
+                    itemBuilder: (context, index) {
+                      final kost = filteredKosts[index];
+                      return _buildKostCard(kost, isFav);
+                    },
+                  ),
           ),
         ],
       ),
-
-      // 4. BOTTOM NAVIGATION BAR
-      bottomNavigationBar: _buildBottomNav(),
     );
   }
 
-  Widget _buildHeader(bool isFavoriteTab) {
+  Widget _buildHeader(bool isFav) {
     return SizedBox(
       height: 175,
       child: Stack(
         children: [
-          // Background Biru Melengkung
           Container(
             height: 150,
             width: double.infinity,
@@ -131,11 +138,11 @@ class _DashboardPageState extends State<DashboardPage> {
                 bottom: Radius.circular(28),
               ),
             ),
-            child: isFavoriteTab
+            child: isFav
                 ? const Align(
                     alignment: Alignment.topCenter,
                     child: Padding(
-                      padding: EdgeInsets.only(top: 12),
+                      padding: EdgeInsets.only(top: 10),
                       child: Text(
                         'Kos Favoritku',
                         style: TextStyle(
@@ -149,28 +156,51 @@ class _DashboardPageState extends State<DashboardPage> {
                 : Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Icon(
-                        Icons.account_circle_outlined,
-                        color: Colors.white,
-                        size: 40,
-                      ),
-                      const SizedBox(width: 10),
-                      const Padding(
-                        padding: EdgeInsets.only(top: 8),
-                        child: Text(
-                          'Hi, Nama Kamu',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                          ),
+                      // Navigasi ke Halaman Profil
+                      GestureDetector(
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => const ProfileScreen(),
+                            ),
+                          );
+                        },
+                        child: const Row(
+                          children: [
+                            Icon(
+                              Icons.account_circle_outlined,
+                              color: Colors.white,
+                              size: 38,
+                            ),
+                            SizedBox(width: 10),
+                            Text(
+                              'Hi, Nama Kamu',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
+
                       const Spacer(),
+
+                      // Navigasi ke Halaman Notifikasi
                       Stack(
                         children: [
                           IconButton(
-                            onPressed: () {},
+                            onPressed: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) =>
+                                      const NotificationScreen(),
+                                ),
+                              );
+                            },
                             icon: const Icon(
                               Icons.notifications_none,
                               color: Colors.white,
@@ -181,8 +211,8 @@ class _DashboardPageState extends State<DashboardPage> {
                             right: 12,
                             top: 12,
                             child: Container(
-                              width: 7,
-                              height: 7,
+                              width: 8,
+                              height: 8,
                               decoration: const BoxDecoration(
                                 color: Colors.redAccent,
                                 shape: BoxShape.circle,
@@ -195,7 +225,7 @@ class _DashboardPageState extends State<DashboardPage> {
                   ),
           ),
 
-          // Search Bar Melayang di Bawah Header
+          // Search Bar Melayang
           Positioned(
             bottom: 0,
             left: 20,
@@ -207,14 +237,23 @@ class _DashboardPageState extends State<DashboardPage> {
                 borderRadius: BorderRadius.circular(12),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.08),
+                    color: Colors.black.withOpacity(0.08),
                     blurRadius: 10,
                     offset: const Offset(0, 4),
                   ),
                 ],
               ),
               child: TextField(
-                onChanged: (value) => setState(() => _searchQuery = value),
+                readOnly: true,
+                onTap: () {
+                  // Navigasi ke halaman pencarian
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => SearchPage(),
+                    ),
+                  );
+                },
                 decoration: const InputDecoration(
                   hintText: 'Pencarian...',
                   hintStyle: TextStyle(color: Colors.grey, fontSize: 14),
@@ -231,30 +270,34 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   Widget _buildCategoryFilter() {
-    return Padding(
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      physics: const BouncingScrollPhysics(),
       padding: const EdgeInsets.symmetric(horizontal: 20),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: _categories.map((category) {
           final bool isSelected = _selectedCategory == category;
-          return GestureDetector(
-            onTap: () => setState(() => _selectedCategory = category),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                color: isSelected ? const Color(0xFF42A5F5) : Colors.white,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(
-                  color: const Color(0xFF42A5F5),
-                  width: 1,
+          return Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: GestureDetector(
+              onTap: () => setState(() => _selectedCategory = category),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                decoration: BoxDecoration(
+                  color: isSelected ? const Color(0xFF42A5F5) : Colors.white,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: const Color(0xFF42A5F5),
+                    width: 1,
+                  ),
                 ),
-              ),
-              child: Text(
-                category,
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: isSelected ? Colors.white : Colors.black87,
+                child: Text(
+                  category,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: isSelected ? Colors.white : Colors.black87,
+                  ),
                 ),
               ),
             ),
@@ -264,16 +307,16 @@ class _DashboardPageState extends State<DashboardPage> {
     );
   }
 
-  Widget _buildKostCard(Map<String, dynamic> kost, bool isFavoriteTab) {
+  Widget _buildKostCard(Map<String, dynamic> kost, bool isFav) {
     return GestureDetector(
-      onTap: (){
+      onTap: () {
         Navigator.push(
           context,
           MaterialPageRoute(
             builder: (context) => DetailPage(kostData: kost),
-            ),
-          );
-        },
+          ),
+        );
+      },
       child: Container(
         margin: const EdgeInsets.only(bottom: 16),
         padding: const EdgeInsets.all(12),
@@ -282,68 +325,40 @@ class _DashboardPageState extends State<DashboardPage> {
           borderRadius: BorderRadius.circular(16),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.06),
+              color: Colors.black.withOpacity(0.06),
               blurRadius: 8,
-              offset: const Offset(0, 3)
+              offset: const Offset(0, 3),
             ),
           ],
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-          // Foto Kos
-          ClipRRect(
-            borderRadius: BorderRadius.circular(12),
-            child: Image.asset(
-              kost['image'],
-              height: 150,
-              width: double.infinity,
-              fit: BoxFit.cover,
-              // Fallback kalau foto belum di-export ke folder assets
-              errorBuilder: (context, error, stackTrace) => Container(
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: Image.asset(
+                kost['image'],
                 height: 150,
                 width: double.infinity,
-                color: Colors.grey.shade300,
-                alignment: Alignment.center,
-                child: const Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.home_work_outlined, size: 40, color: Colors.grey),
-                    SizedBox(height: 4),
-                    Text(
-                      ' Taruh foto di folder assets/',
-                      style: TextStyle(fontSize: 12, color: Colors.black54),
-                    ),
-                  ],
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) => Container(
+                  height: 150,
+                  width: double.infinity,
+                  color: Colors.grey.shade300,
+                  alignment: Alignment.center,
+                  child: const Icon(Icons.home_work_outlined, size: 40, color: Colors.grey),
                 ),
               ),
             ),
-          ),
-          const SizedBox(height: 10),
-
-          // Nama Kos & Badge Gender
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                kost['name'],
-                style: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: const Color(0xFF42A5F5)),
-                ),
-                child: Text(
-                  kost['type'],
+            const SizedBox(height: 10),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  kost['name'],
                   style: const TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.black87,
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
                   ),
                 ),
               ),
@@ -415,37 +430,38 @@ class _DashboardPageState extends State<DashboardPage> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
                   decoration: BoxDecoration(
-                    color: isSelected
-                        ? const Color(0xFFBBDEFB)
-                        : Colors.transparent,
-                    borderRadius: BorderRadius.circular(16),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: const Color(0xFF42A5F5)),
                   ),
-                  child: Icon(
-                    items[index]['icon'] as IconData,
-                    size: 22,
-                    color: isSelected
-                        ? const Color(0xFF1E88E5)
-                        : Colors.black87,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  items[index]['label'] as String,
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: isSelected
-                        ? const Color(0xFF1E88E5)
-                        : Colors.black54,
-                    fontWeight:
-                        isSelected ? FontWeight.w600 : FontWeight.normal,
+                  child: Text(
+                    kost['type'],
+                    style: const TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.black87,
+                    ),
                   ),
                 ),
               ],
             ),
-          );
-        }),
+            const SizedBox(height: 4),
+            Text(
+              kost['location'],
+              style: const TextStyle(fontSize: 11, color: Colors.black54),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              isFav ? kost['favPrice'] : kost['price'],
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF1E88E5),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

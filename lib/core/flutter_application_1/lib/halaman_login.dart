@@ -3,7 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:path_drawing/path_drawing.dart';
 import 'auth_service.dart';
-import 'dashboard_page.dart';
+import 'main_screen.dart';
+import 'halaman_daftar.dart';
 
 // ====== Warna dari desain Figma ======
 const _kBg = Color(0xFFF4F7FC);
@@ -13,10 +14,14 @@ const _kHint = Color(0xB3989898); // #989898 opacity 70%
 const _kMerah = Color(0xFFE53935);
 
 // ====== Path gelombang (diambil langsung dari SVG) ======
-final Path _blobBawah = parseSvgPathData('M158 674.464C135.476 628.735 0 666.98 0 666.98V799H359V769.256C284.397 736.244 180.524 720.193 158 674.464Z');
-final Path _blobAtas = parseSvgPathData('M157.88 124.536C135.231 170.265 -1 132.02 -1 132.02V0H360V29.7438C284.982 62.7565 180.529 78.8069 157.88 124.536Z');
-final Path _waveBawah = parseSvgPathData('M0 712.5L15.25 708.333C30.5 704.167 61 695.833 91.5 708.333C122 720.833 152.5 754.167 183 752.083C213.5 750 244 712.5 274.5 693.75C305 675 335.5 675 350.75 675H366V800H350.75C335.5 800 305 800 274.5 800C244 800 213.5 800 183 800C152.5 800 122 800 91.5 800C61 800 30.5 800 15.25 800H0V712.5Z');
-final Path _waveAtas = parseSvgPathData('M-1 86.5L14.2083 90.6667C29.4167 94.8333 59.8333 103.167 90.25 90.6667C120.667 78.1667 151.083 44.8333 181.5 46.9167C211.917 49 242.333 86.5 272.75 105.25C303.167 124 333.583 124 348.792 124H364V-1H348.792C333.583 -1 303.167 -1 272.75 -1C242.333 -1 211.917 -1 181.5 -1C151.083 -1 120.667 -1 90.25 -1C59.8333 -1 29.4167 -1 14.2083 -1H-1V86.5Z');
+final Path _blobBawah = parseSvgPathData(
+    'M158 674.464C135.476 628.735 0 666.98 0 666.98V799H359V769.256C284.397 736.244 180.524 720.193 158 674.464Z');
+final Path _blobAtas = parseSvgPathData(
+    'M157.88 124.536C135.231 170.265 -1 132.02 -1 132.02V0H360V29.7438C284.982 62.7565 180.529 78.8069 157.88 124.536Z');
+final Path _waveBawah = parseSvgPathData(
+    'M0 712.5L15.25 708.333C30.5 704.167 61 695.833 91.5 708.333C122 720.833 152.5 754.167 183 752.083C213.5 750 244 712.5 274.5 693.75C305 675 335.5 675 350.75 675H366V800H350.75C335.5 800 305 800 274.5 800C244 800 213.5 800 183 800C152.5 800 122 800 91.5 800C61 800 30.5 800 15.25 800H0V712.5Z');
+final Path _waveAtas = parseSvgPathData(
+    'M-1 86.5L14.2083 90.6667C29.4167 94.8333 59.8333 103.167 90.25 90.6667C120.667 78.1667 151.083 44.8333 181.5 46.9167C211.917 49 242.333 86.5 272.75 105.25C303.167 124 333.583 124 348.792 124H364V-1H348.792C333.583 -1 303.167 -1 272.75 -1C242.333 -1 211.917 -1 181.5 -1C151.083 -1 120.667 -1 90.25 -1C59.8333 -1 29.4167 -1 14.2083 -1H-1V86.5Z');
 
 /// Notifikasi kecil dengan ikon centang biru (mis. "Berhasil Masuk").
 void tampilNotif(BuildContext context, String pesan) {
@@ -34,9 +39,14 @@ void tampilNotif(BuildContext context, String pesan) {
         children: [
           const Icon(Icons.check_circle, color: Color(0xFF1782FB), size: 22),
           const SizedBox(width: 10),
-          Text(pesan,
-              style: GoogleFonts.poppins(
-                  color: Colors.black, fontWeight: FontWeight.w600, fontSize: 13)),
+          Text(
+            pesan,
+            style: GoogleFonts.poppins(
+              color: Colors.black,
+              fontWeight: FontWeight.w600,
+              fontSize: 13,
+            ),
+          ),
         ],
       ),
     ),
@@ -55,6 +65,7 @@ class _HalamanLoginState extends State<HalamanLogin> {
   final _password = TextEditingController();
   bool _sembunyi = true;
   String? _error;
+  bool _loading = false;
 
   @override
   void dispose() {
@@ -62,8 +73,6 @@ class _HalamanLoginState extends State<HalamanLogin> {
     _password.dispose();
     super.dispose();
   }
-
-  bool _loading = false;
 
   Future<void> _masuk() async {
     if (_loading) return;
@@ -85,21 +94,20 @@ class _HalamanLoginState extends State<HalamanLogin> {
       _loading = true;
     });
 
-    // Ganti isi AuthService.login dengan Firebase / API Anda.
     final hasil = await AuthService.login(email, pass);
     if (!mounted) return;
 
     if (hasil != null) {
       setState(() {
         _loading = false;
-        _error = hasil; // mis. "Sandi salah"
+        _error = hasil;
       });
       return;
     }
 
     setState(() => _loading = false);
     Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(builder: (_) => const DashboardPage()),
+      MaterialPageRoute(builder: (_) => const MainScreen()),
       (route) => false,
     );
     tampilNotif(context, 'Berhasil Masuk');
@@ -109,19 +117,22 @@ class _HalamanLoginState extends State<HalamanLogin> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: _kBg,
-      // Gelombang tetap di tempat saat keyboard muncul; isi digeser manual.
       resizeToAvoidBottomInset: false,
       body: Stack(
         fit: StackFit.expand,
         children: [
-          // Latar gelombang (menyesuaikan ukuran layar)
+          // Latar gelombang
           const CustomPaint(painter: _LatarGelombang()),
 
-          // Isi halaman (bisa di-scroll saat keyboard muncul)
+          // Isi halaman
           SingleChildScrollView(
             keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
             padding: EdgeInsets.fromLTRB(
-                24, 0, 22, 24 + MediaQuery.viewInsetsOf(context).bottom),
+              24,
+              0,
+              22,
+              24 + MediaQuery.viewInsetsOf(context).bottom,
+            ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -181,7 +192,7 @@ class _HalamanLoginState extends State<HalamanLogin> {
                 ),
                 const SizedBox(height: 10),
 
-                // Pesan error (kiri) + Lupa Password (kanan)
+                // Pesan error + Lupa Password
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -189,18 +200,25 @@ class _HalamanLoginState extends State<HalamanLogin> {
                       child: Text(
                         _error ?? '',
                         style: GoogleFonts.nunito(
-                            color: _kMerah, fontSize: 12, fontWeight: FontWeight.w600),
+                          color: _kMerah,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ),
                     GestureDetector(
                       onTap: () {
-                        // TODO: buka halaman Lupa Password
+                        // Navigasi ke halaman Lupa Password
                       },
                       child: Padding(
                         padding: const EdgeInsets.symmetric(vertical: 4),
-                        child: Text('Lupa Password?',
-                            style: GoogleFonts.nunito(
-                                color: _kBiruLink, fontSize: 14)),
+                        child: Text(
+                          'Lupa Password?',
+                          style: GoogleFonts.nunito(
+                            color: _kBiruLink,
+                            fontSize: 14,
+                          ),
+                        ),
                       ),
                     ),
                   ],
@@ -217,21 +235,35 @@ class _HalamanLoginState extends State<HalamanLogin> {
                     crossAxisAlignment: WrapCrossAlignment.center,
                     spacing: 6,
                     children: [
-                      Text('Belum punya akun AyoKost?',
-                          style: GoogleFonts.inter(
-                              color: Colors.black, fontSize: 14)),
+                      Text(
+                        'Belum punya akun AyoKost?',
+                        style: GoogleFonts.inter(
+                          color: Colors.black,
+                          fontSize: 14,
+                        ),
+                      ),
                       GestureDetector(
                         onTap: () {
-                          // TODO: buka halaman Daftar
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => const HalamanDaftar(),
+                            ),
+                          );
                         },
-                        child: Text('Daftar sekarang',
-                            style: GoogleFonts.nunito(
-                                color: _kBiruDaftar, fontSize: 14)),
+                        child: Text(
+                          'Daftar sekarang',
+                          style: GoogleFonts.nunito(
+                            color: _kBiruDaftar,
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
                       ),
                     ],
                   ),
                 ),
-                const SizedBox(height: 160), // ruang agar tidak tertutup gelombang bawah
+                const SizedBox(height: 160),
               ],
             ),
           ),
@@ -274,7 +306,7 @@ class _KolomInput extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
         boxShadow: [
           BoxShadow(
-            color: const Color(0x40000000), // hitam 25%
+            color: const Color(0x40000000),
             offset: const Offset(0, 2),
             blurRadius: blur,
           ),
@@ -296,14 +328,13 @@ class _KolomInput extends StatelessWidget {
                 hintStyle: GoogleFonts.nunito(fontSize: 16, color: _kHint),
                 border: InputBorder.none,
                 isCollapsed: true,
-                // Atur manual: left = jarak kiri, top/bottom = geser naik/turun
                 contentPadding: EdgeInsets.only(left: padKiri),
               ),
             ),
           ),
           if (suffix != null)
             Padding(
-              padding: const EdgeInsets.only(right: 16), // jarak ikon dari kanan
+              padding: const EdgeInsets.only(right: 16),
               child: suffix,
             ),
         ],
@@ -316,10 +347,10 @@ class _KolomInput extends StatelessWidget {
 class _Elips extends GradientTransform {
   const _Elips(this.sx);
   final double sx;
+
   @override
   Matrix4? transform(Rect bounds, {TextDirection? textDirection}) {
     final c = bounds.center;
-    // skala horizontal sebesar sx dengan titik tengah tetap
     return Matrix4(
       sx, 0, 0, 0,
       0, 1, 0, 0,
@@ -331,6 +362,7 @@ class _Elips extends GradientTransform {
 
 class _TombolMasuk extends StatelessWidget {
   const _TombolMasuk({required this.onTap, this.loading = false});
+
   final VoidCallback onTap;
   final bool loading;
 
@@ -359,13 +391,18 @@ class _TombolMasuk extends StatelessWidget {
                     width: 22,
                     height: 22,
                     child: CircularProgressIndicator(
-                        strokeWidth: 2.5, color: Colors.white),
+                      strokeWidth: 2.5,
+                      color: Colors.white,
+                    ),
                   )
-                : Text('MASUK',
+                : Text(
+                    'MASUK',
                     style: GoogleFonts.poppins(
-                        color: Colors.white,
-                        fontSize: 17,
-                        fontWeight: FontWeight.w600)),
+                      color: Colors.white,
+                      fontSize: 17,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
           ),
         ),
       ),
@@ -378,13 +415,15 @@ class _LatarGelombang extends CustomPainter {
   const _LatarGelombang();
 
   Shader _blob(Offset a, Offset b) => ui.Gradient.linear(
-        a, b,
+        a,
+        b,
         [const Color(0x592089ED), const Color(0x2D2CA0CC)],
         [0.254808, 1.0],
       );
 
   Shader _wave(double y, double x2) => ui.Gradient.linear(
-        Offset(0, y), Offset(x2, y),
+        Offset(0, y),
+        Offset(x2, y),
         [
           const Color(0x99157CFD),
           const Color(0x4D00AAFF),
@@ -398,10 +437,22 @@ class _LatarGelombang extends CustomPainter {
     canvas.save();
     canvas.scale(size.width / 360, size.height / 800);
 
-    canvas.drawPath(_blobBawah,
-        Paint()..shader = _blob(const Offset(108.803, 665.415), const Offset(183.923, 796.465)));
-    canvas.drawPath(_blobAtas,
-        Paint()..shader = _blob(const Offset(108.409, 133.585), const Offset(183.317, 2.17591)));
+    canvas.drawPath(
+      _blobBawah,
+      Paint()
+        ..shader = _blob(
+          const Offset(108.803, 665.415),
+          const Offset(183.923, 796.465),
+        ),
+    );
+    canvas.drawPath(
+      _blobAtas,
+      Paint()
+        ..shader = _blob(
+          const Offset(108.409, 133.585),
+          const Offset(183.317, 2.17591),
+        ),
+    );
 
     final garis = Paint()
       ..style = PaintingStyle.stroke

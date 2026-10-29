@@ -5,7 +5,7 @@ class AuthService {
   AuthService._();
 
   // ===== Akun demo (hapus saat sudah memakai server sungguhan) =====
-  static const String demoEmail = 'admin@ayokost.com';
+  static const String demoEmail = 'client@ayokost.com';
   static const String demoPassword = '123456';
 
   /// Mengembalikan `null` jika login berhasil, atau pesan error jika gagal.
