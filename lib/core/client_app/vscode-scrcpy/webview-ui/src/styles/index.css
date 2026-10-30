@@ -1,0 +1,15 @@
+/*
+ * Core stylesheet - loaded eagerly by every view.
+ *
+ * Only genuinely shared rules belong here. Per-view sheets are imported by the
+ * app that owns them (see apps/*.tsx) so they ride that view's lazy chunk
+ * instead of being parsed by the three views that never use them.
+ */
+
+/* Import base styles first */
+@import './base.css';
+
+/* Import shared component styles */
+@import './buttons.css';
+@import './deviceSelector.css';
+@import './tooltip.css';

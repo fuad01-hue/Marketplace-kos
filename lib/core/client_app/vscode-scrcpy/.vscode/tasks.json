@@ -1,0 +1,44 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "type": "npm",
+            "script": "watch",
+            "problemMatcher": {
+                "owner": "esbuild",
+                "fileLocation": [
+                    "relative",
+                    "${workspaceFolder}"
+                ],
+                "pattern": [
+                    {
+                        "regexp": "^((?:[A-Za-z]:)?[^:]+):(\\d+):(\\d+):\\s*(?:ERROR|WARN|WARNING|error|warning):\\s*(.*)$",
+                        "file": 1,
+                        "line": 2,
+                        "column": 3,
+                        "message": 4
+                    }
+                ],
+                "background": {
+                    "activeOnStart": true,
+                    "beginsPattern": "ESBUILD_WATCH_START",
+                    "endsPattern": "ESBUILD_WATCH_READY"
+                }
+            },
+            "isBackground": true,
+            "presentation": {
+                "reveal": "never"
+            },
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            }
+        },
+        {
+            "type": "npm",
+            "script": "compile",
+            "problemMatcher": [],
+            "group": "build"
+        }
+    ]
+}
