@@ -1,0 +1,1025 @@
+import * as vscode from 'vscode';
+import * as path from 'path';
+import * as fs from 'fs';
+// Type-only: ScrcpyService drags in the @yume-chan protocol stack, ~63% of the
+// bundle, and is loaded on demand in _startStreaming() instead of at activation.
+import type { ScrcpyService } from '../services/ScrcpyService';
+import { VideoFrameForwarder } from '../services/VideoFrameForwarder';
+import { DeviceInfoService } from '../services/DeviceInfoService';
+import { DeviceManager } from '../services/DeviceManager';
+import { AppManager } from '../services/AppManager';
+import { AdbShellService } from '../services/AdbShellService';
+import { installApks } from '../services/ApkInstaller';
+
+export class ScrcpySidebarView {
+    public static currentView: ScrcpySidebarView | undefined;
+    public static readonly viewType = 'scrcpySidebar';
+
+    private readonly _view: vscode.WebviewView;
+    private readonly _extensionUri: vscode.Uri;
+    private readonly _context: vscode.ExtensionContext;
+    private _disposables: vscode.Disposable[] = [];
+    private _scrcpyService: ScrcpyService | null = null;
+    private readonly _videoForwarder: VideoFrameForwarder;
+    private _deviceInfoService: DeviceInfoService | null = null;
+    private _deviceManager: DeviceManager | null = null;
+    private _appManager: AppManager | null = null;
+    private _persistentMirroringEnabled: boolean = false;
+    private _wasStreamingBeforeHidden: boolean = false;
+    private _isViewVisible: boolean = true;
+    private _adbShellService: AdbShellService;
+
+    // Mirrors the webview's persistent mirroring setting so the extension knows the
+    // mode before the webview has finished loading its settings and reported in
+    private static readonly PERSISTENT_MIRRORING_KEY = 'scrcpy.persistentMirroring';
+
+    // Target of the error surface's "Troubleshooting" action
+    private static readonly TROUBLESHOOTING_URL =
+        'https://github.com/Aradhya1905/vscode-scrcpy#troubleshooting';
+
+    public static revive(webviewView: vscode.WebviewView, context: vscode.ExtensionContext) {
+        ScrcpySidebarView.currentView = new ScrcpySidebarView(webviewView, context);
+    }
+
+    private constructor(view: vscode.WebviewView, context: vscode.ExtensionContext) {
+        this._view = view;
+        this._extensionUri = context.extensionUri;
+        this._context = context;
+
+        this._adbShellService = new AdbShellService(context);
+
+        this._videoForwarder = new VideoFrameForwarder({
+            postMessage: (message) => this._view.webview.postMessage(message),
+            // In persistent mode the stream stays alive while the view is hidden, but
+            // nothing can be rendered, so the packet is dropped before it is posted.
+            isDeliverable: () => !(this._persistentMirroringEnabled && !this._isViewVisible),
+            requestKeyFrame: () => this._scrcpyService?.requestKeyFrame(),
+        });
+
+        this._persistentMirroringEnabled = context.globalState.get<boolean>(
+            ScrcpySidebarView.PERSISTENT_MIRRORING_KEY,
+            false
+        );
+
+        // Configure webview
+        this._view.webview.options = {
+            enableScripts: true,
+            localResourceRoots: [context.extensionUri],
+        };
+
+        // Initialize DeviceManager
+        this._deviceManager = new DeviceManager(context, {
+            onDeviceList: (devices) => {
+                this._view.webview.postMessage({
+                    type: 'device-list',
+                    devices: devices,
+                });
+            },
+            onError: (error) => {
+                console.error('DeviceManager error:', error);
+                this._view.webview.postMessage({
+                    type: 'error',
+                    message: error,
+                });
+            },
+        });
+
+        // A live mirror already proves which device is connected, so preferred-device
+        // lookups behind UI actions can skip `adb devices -l` entirely.
+        this._deviceManager.setActiveDeviceProvider(() =>
+            this._scrcpyService?.isActive() ? this._scrcpyService.getCurrentDeviceId() : null
+        );
+
+        // Initialize DeviceInfoService
+        this._deviceInfoService = new DeviceInfoService({
+            onDeviceInfo: (info) => {
+                this._view.webview.postMessage({
+                    type: 'device-info',
+                    info: info,
+                });
+            },
+            onError: (error) => {
+                console.error('DeviceInfoService error:', error);
+            },
+        });
+
+        // Initialize AppManager
+        this._appManager = new AppManager({
+            onAppList: (apps) => {
+                this._view.webview.postMessage({
+                    type: 'app-list',
+                    apps: apps,
+                });
+            },
+            onRecentApps: (apps) => {
+                this._view.webview.postMessage({
+                    type: 'recent-apps',
+                    apps: apps,
+                });
+            },
+            onDebugApps: (apps) => {
+                this._view.webview.postMessage({
+                    type: 'debug-apps',
+                    apps: apps,
+                });
+            },
+            onError: (error) => {
+                console.error('AppManager error:', error);
+                this._view.webview.postMessage({
+                    type: 'error',
+                    message: error,
+                });
+            },
+        });
+
+        // Set initial HTML
+        this._view.webview.html = this._getHtmlForWebview();
+
+        // Handle visibility changes with toggleable persistence
+        this._view.onDidChangeVisibility(
+            async () => {
+                const wasVisible = this._isViewVisible;
+                this._isViewVisible = this._view.visible;
+
+                // Device info paints nothing while hidden. Gate it independently of
+                // persistent mirroring, which otherwise keeps the poll running for a
+                // surface no one can see.
+                if (this._view.visible) {
+                    this._deviceInfoService?.resumePolling();
+                } else {
+                    this._deviceInfoService?.pausePolling();
+                }
+
+                if (this._view.visible) {
+                    if (
+                        this._persistentMirroringEnabled &&
+                        !wasVisible &&
+                        this._scrcpyService?.isActive()
+                    ) {
+                        this._resyncVideoStream();
+                    } else if (
+                        !this._persistentMirroringEnabled &&
+                        this._wasStreamingBeforeHidden
+                    ) {
+                        this._wasStreamingBeforeHidden = false;
+                        try {
+                            await this._startStreaming();
+                        } catch (error) {
+                            const errorMessage =
+                                error instanceof Error ? error.message : String(error);
+                            console.error('Failed to resume streaming:', errorMessage);
+                            vscode.window.showErrorMessage(
+                                `Failed to resume streaming: ${errorMessage}`
+                            );
+                            this._view.webview.postMessage({
+                                type: 'error',
+                                message: `Failed to resume streaming: ${errorMessage}`,
+                            });
+                        }
+                    } else if (!this._scrcpyService?.isActive()) {
+                        // Refresh device list when becoming visible
+                        this._deviceManager?.refreshDeviceList();
+                    }
+                } else if (!this._persistentMirroringEnabled && this._scrcpyService?.isActive()) {
+                    this._wasStreamingBeforeHidden = true;
+                    this._stopStreaming();
+                }
+            },
+            null,
+            this._disposables
+        );
+
+        // Handle dispose
+        this._view.onDidDispose(() => this.dispose(), null, this._disposables);
+
+        // Handle messages from webview
+        this._view.webview.onDidReceiveMessage(
+            async (message) => {
+                switch (message.command) {
+                    case 'start':
+                        await this._startStreaming();
+                        break;
+                    case 'stop':
+                        this._stopStreaming();
+                        break;
+                    case 'video-request-keyframe':
+                        this._scrcpyService?.requestKeyFrame();
+                        break;
+                    case 'video-backpressure':
+                        this._videoForwarder.setSaturated(message.saturated === true);
+                        break;
+                    case 'ready':
+                        // Send initial device list
+                        await this._deviceManager?.refreshDeviceList();
+                        break;
+                    case 'touch':
+                        this._handleTouchEvent(message);
+                        break;
+                    case 'key':
+                        this._handleKeyEvent(message);
+                        break;
+                    case 'home':
+                        this._handleHome();
+                        break;
+                    case 'back':
+                        this._handleBack();
+                        break;
+                    case 'app-switch':
+                        this._handleAppSwitch();
+                        break;
+                    case 'screenshot':
+                        this._handleScreenshot();
+                        break;
+                    case 'screenshot-copied':
+                        this._handleScreenshotCopied(message);
+                        break;
+                    case 'scroll':
+                        this._handleScroll(message);
+                        break;
+                    case 'get-device-info':
+                        this._deviceInfoService?.fetchDeviceInfo();
+                        break;
+                    case 'get-device-list':
+                        await this._deviceManager?.refreshDeviceList();
+                        break;
+                    case 'select-device':
+                        await this._handleSelectDevice(message.deviceId);
+                        break;
+                    case 'get-app-list':
+                        await this._handleGetAppList(message.refresh === true);
+                        break;
+                    case 'get-recent-apps':
+                        await this._handleGetRecentApps(message.refresh === true);
+                        break;
+                    case 'get-debug-apps':
+                        await this._handleGetDebugApps(message.refresh === true);
+                        break;
+                    case 'launch-app':
+                        await this._handleLaunchApp(message.packageName);
+                        break;
+                    case 'pick-apk-files':
+                        await this._handlePickApkFiles();
+                        break;
+                    case 'install-apk':
+                        await this._handleInstallApk(message.files);
+                        break;
+                    // Panels are required lazily so opening the sidebar does not also
+                    // parse and evaluate three panels the user may never open.
+                    case 'open-file-manager': {
+                        const { FileManagerPanel } = require('../panels/FileManagerPanel');
+                        FileManagerPanel.createOrShow(this._context);
+                        break;
+                    }
+                    case 'open-shell-logs': {
+                        const { ShellLogsPanel } = require('../panels/ShellLogsPanel');
+                        ShellLogsPanel.createOrShow(this._context);
+                        break;
+                    }
+                    case 'open-logcat': {
+                        const { LogcatPanel } = require('../panels/LogcatPanel');
+                        LogcatPanel.createOrShow(this._context);
+                        break;
+                    }
+                    case 'volume-up':
+                        await this._handleVolumeUp();
+                        break;
+                    case 'volume-down':
+                        await this._handleVolumeDown();
+                        break;
+                    case 'lock-screen':
+                        await this._handleLockScreen();
+                        break;
+                    case 'open-camera':
+                        await this._handleOpenCamera();
+                        break;
+                    case 'screen-power-toggle':
+                        this._handleScreenPowerToggle(message.screenOff);
+                        break;
+                    case 'show-touches':
+                        await this._handleShowTouches(message.enabled);
+                        break;
+                    case 'stay-awake':
+                        await this._handleStayAwake(message.enabled);
+                        break;
+                    case 'dark-mode':
+                        await this._handleDarkMode(message.enabled);
+                        break;
+                    case 'paste':
+                        await this._handlePaste(message.text);
+                        break;
+                    case 'check-devices':
+                        await this._handleCheckDevices();
+                        break;
+                    case 'restart-adb-server':
+                        await this._handleRestartAdbServer();
+                        break;
+                    case 'open-troubleshooting':
+                        await vscode.env.openExternal(
+                            vscode.Uri.parse(ScrcpySidebarView.TROUBLESHOOTING_URL)
+                        );
+                        break;
+                    case 'set-persistent-mirroring': {
+                        const enabled = !!message.enabled;
+                        this._persistentMirroringEnabled = enabled;
+                        await this._context.globalState.update(
+                            ScrcpySidebarView.PERSISTENT_MIRRORING_KEY,
+                            enabled
+                        );
+                        break;
+                    }
+                }
+            },
+            null,
+            this._disposables
+        );
+    }
+
+    private async _handlePickApkFiles(): Promise<void> {
+        const picked = await vscode.window.showOpenDialog({
+            canSelectMany: true,
+            openLabel: 'Select APK(s)',
+            filters: { 'Android Package': ['apk'] },
+        });
+
+        if (!picked || picked.length === 0) {
+            return;
+        }
+
+        const paths = picked.map((u) => u.fsPath);
+        this._view.webview.postMessage({ type: 'apk-files-selected', paths });
+    }
+
+    private async _handleInstallApk(requestedPaths?: string[]): Promise<void> {
+        const deviceId =
+            this._scrcpyService?.getCurrentDeviceId() ||
+            (await this._deviceManager?.getPreferredDevice()) ||
+            null;
+
+        if (!deviceId) {
+            const msg =
+                'No Android device connected. Connect a device (adb devices) and try again.';
+            vscode.window.showErrorMessage(msg);
+            this._view.webview.postMessage({
+                type: 'apk-install-result',
+                success: false,
+                message: msg,
+            });
+            return;
+        }
+
+        const isValidPath = (p: string) => {
+            if (!p) return false;
+            const lower = p.toLowerCase();
+            if (lower.includes('fakepath')) return false;
+            if (!lower.endsWith('.apk')) return false;
+            return fs.existsSync(p);
+        };
+
+        let apkPaths = (requestedPaths || []).filter(isValidPath);
+
+        if (apkPaths.length === 0) {
+            const picked = await vscode.window.showOpenDialog({
+                canSelectMany: true,
+                openLabel: 'Install APK(s)',
+                filters: { 'Android Package': ['apk'] },
+            });
+
+            if (!picked || picked.length === 0) {
+                return;
+            }
+
+            apkPaths = picked.map((u) => u.fsPath).filter(isValidPath);
+            this._view.webview.postMessage({ type: 'apk-files-selected', paths: apkPaths });
+        }
+
+        if (apkPaths.length === 0) {
+            const msg =
+                'No valid APK paths were provided. Please pick APK files from the VS Code dialog.';
+            vscode.window.showErrorMessage(msg);
+            this._view.webview.postMessage({
+                type: 'apk-install-result',
+                success: false,
+                message: msg,
+            });
+            return;
+        }
+
+        this._view.webview.postMessage({
+            type: 'apk-install-status',
+            level: 'info',
+            message: `Installing ${apkPaths.length} APK(s) on ${deviceId}...`,
+        });
+
+        try {
+            await installApks(deviceId, apkPaths);
+
+            const ok = `Installed ${apkPaths.length} APK(s) on ${deviceId}.`;
+            vscode.window.showInformationMessage(ok);
+            this._view.webview.postMessage({
+                type: 'apk-install-result',
+                success: true,
+                message: ok,
+            });
+        } catch (error) {
+            const msg = error instanceof Error ? error.message : String(error);
+            vscode.window.showErrorMessage(`APK install failed: ${msg}`);
+            this._view.webview.postMessage({
+                type: 'apk-install-result',
+                success: false,
+                message: msg,
+            });
+        }
+    }
+
+    /**
+     * Runs `adb devices -l` and hands the raw output back to the error surface.
+     *
+     * The point is to show the user the `unauthorized` / `offline` line itself
+     * rather than a paraphrase of it - the same thing they would run in a
+     * terminal, read-only, and with no device-state mutation.
+     */
+    private async _handleCheckDevices(): Promise<void> {
+        try {
+            const result = await this._adbShellService.executeHostCommand(['devices', '-l']);
+            const output = [result.stdout, result.stderr].filter(Boolean).join('\n');
+            this._view.webview.postMessage({
+                type: 'diagnostic-result',
+                action: 'check-devices',
+                success: result.exitCode === 0,
+                output: output || 'adb devices produced no output.',
+            });
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            this._view.webview.postMessage({
+                type: 'diagnostic-result',
+                action: 'check-devices',
+                success: false,
+                output: message,
+            });
+        }
+    }
+
+    /**
+     * `adb kill-server && adb start-server`, the fix for a large share of real
+     * connection failures. It restarts the *host* daemon only - nothing on the
+     * device is touched - and refreshes the device list once it comes back.
+     */
+    private async _handleRestartAdbServer(): Promise<void> {
+        try {
+            const kill = await this._adbShellService.executeHostCommand(['kill-server']);
+            const start = await this._adbShellService.executeHostCommand(['start-server']);
+            const success = kill.exitCode === 0 && start.exitCode === 0;
+            const output =
+                [kill.stdout, kill.stderr, start.stdout, start.stderr].filter(Boolean).join('\n') ||
+                (success ? 'adb server restarted.' : 'adb server restart reported no output.');
+
+            this._view.webview.postMessage({
+                type: 'diagnostic-result',
+                action: 'restart-adb-server',
+                success,
+                output,
+            });
+
+            await this._deviceManager?.refreshDeviceList();
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            this._view.webview.postMessage({
+                type: 'diagnostic-result',
+                action: 'restart-adb-server',
+                success: false,
+                output: message,
+            });
+        }
+    }
+
+    private async _startStreaming() {
+        if (this._scrcpyService?.isActive()) {
+            return;
+        }
+
+        // Get preferred device or first available
+        const deviceId = (await this._deviceManager?.getPreferredDevice()) || null;
+
+        // First mirror start of the session pays for loading the protocol stack;
+        // activation does not.
+        const { ScrcpyService } = await import('../services/ScrcpyService');
+
+        this._scrcpyService = new ScrcpyService(
+            {
+                onVideoPacket: this._videoForwarder.handlePacket,
+                onError: (error) => {
+                    vscode.window.showErrorMessage(`Scrcpy Error: ${error}`);
+                    this._view.webview.postMessage({
+                        type: 'error',
+                        message: error,
+                    });
+                },
+                onProgress: (stage) => {
+                    this._view.webview.postMessage({
+                        type: 'connect-progress',
+                        stage,
+                    });
+                },
+                onConnected: () => {
+                    const connectedDeviceId = this._scrcpyService?.getCurrentDeviceId();
+                    if (connectedDeviceId) {
+                        this._deviceInfoService?.setDevice(connectedDeviceId);
+                        this._deviceManager?.selectDevice(connectedDeviceId);
+                        this._appManager?.setDevice(connectedDeviceId);
+                        this._view.webview.postMessage({
+                            type: 'device-selected',
+                            deviceId: connectedDeviceId,
+                        });
+                    }
+                    this._view.webview.postMessage({
+                        type: 'connected',
+                    });
+                },
+                onDisconnected: () => {
+                    this._deviceInfoService?.setDevice(null);
+                    this._appManager?.setDevice(null);
+                    this._view.webview.postMessage({
+                        type: 'disconnected',
+                    });
+                },
+            },
+            this._extensionUri.fsPath
+        );
+
+        this._view.webview.postMessage({ type: 'connecting' });
+        await this._scrcpyService.start(deviceId);
+    }
+
+    private _stopStreaming() {
+        this._videoForwarder.reset();
+        this._scrcpyService?.stop();
+        this._scrcpyService = null;
+    }
+
+    private _handleTouchEvent(message: any) {
+        if (!this._scrcpyService) {
+            return;
+        }
+
+        const { action, x, y, videoWidth, videoHeight } = message;
+        this._scrcpyService.sendTouchEvent(action, x, y, videoWidth, videoHeight);
+    }
+
+    private _handleKeyEvent(message: any) {
+        if (!this._scrcpyService) {
+            return;
+        }
+
+        const { action, keyCode, metaState } = message;
+        this._scrcpyService.sendKeyEvent(action, keyCode, metaState);
+    }
+
+    private _handleHome() {
+        if (!this._scrcpyService) {
+            return;
+        }
+        // Android HOME keycode = 3
+        this._scrcpyService.sendKeyEvent('down', 3, 0);
+        this._scrcpyService.sendKeyEvent('up', 3, 0);
+    }
+
+    private _handleBack() {
+        if (!this._scrcpyService) {
+            return;
+        }
+        // Android BACK keycode = 4
+        this._scrcpyService.sendKeyEvent('down', 4, 0);
+        this._scrcpyService.sendKeyEvent('up', 4, 0);
+    }
+
+    private _handleAppSwitch() {
+        if (!this._scrcpyService) {
+            return;
+        }
+        // Android APP_SWITCH keycode = 187
+        this._scrcpyService.sendKeyEvent('down', 187, 0);
+        this._scrcpyService.sendKeyEvent('up', 187, 0);
+    }
+
+    private async _handleVolumeUp(): Promise<void> {
+        const deviceId =
+            this._scrcpyService?.getCurrentDeviceId() ||
+            (await this._deviceManager?.getPreferredDevice()) ||
+            null;
+
+        if (!deviceId) {
+            vscode.window.showWarningMessage(
+                'No Android device connected. Connect a device (adb devices) and try again.'
+            );
+            return;
+        }
+
+        try {
+            const result = await this._adbShellService.executeCommand(
+                deviceId,
+                'input keyevent 24'
+            );
+            if (result.exitCode !== 0) {
+                const details = result.stderr || result.stdout || `exitCode=${result.exitCode}`;
+                vscode.window.showErrorMessage(`Failed to send Volume Up: ${details}`);
+            }
+        } catch (error) {
+            const msg = error instanceof Error ? error.message : String(error);
+            vscode.window.showErrorMessage(`Failed to send Volume Up: ${msg}`);
+        }
+    }
+
+    private async _handleVolumeDown(): Promise<void> {
+        const deviceId =
+            this._scrcpyService?.getCurrentDeviceId() ||
+            (await this._deviceManager?.getPreferredDevice()) ||
+            null;
+
+        if (!deviceId) {
+            vscode.window.showWarningMessage(
+                'No Android device connected. Connect a device (adb devices) and try again.'
+            );
+            return;
+        }
+
+        try {
+            const result = await this._adbShellService.executeCommand(
+                deviceId,
+                'input keyevent 25'
+            );
+            if (result.exitCode !== 0) {
+                const details = result.stderr || result.stdout || `exitCode=${result.exitCode}`;
+                vscode.window.showErrorMessage(`Failed to send Volume Down: ${details}`);
+            }
+        } catch (error) {
+            const msg = error instanceof Error ? error.message : String(error);
+            vscode.window.showErrorMessage(`Failed to send Volume Down: ${msg}`);
+        }
+    }
+
+    private async _handleLockScreen(): Promise<void> {
+        const deviceId =
+            this._scrcpyService?.getCurrentDeviceId() ||
+            (await this._deviceManager?.getPreferredDevice()) ||
+            null;
+
+        if (!deviceId) {
+            vscode.window.showWarningMessage(
+                'No Android device connected. Connect a device (adb devices) and try again.'
+            );
+            return;
+        }
+
+        try {
+            const result = await this._adbShellService.executeCommand(
+                deviceId,
+                'input keyevent 26'
+            );
+            if (result.exitCode !== 0) {
+                const details = result.stderr || result.stdout || `exitCode=${result.exitCode}`;
+                vscode.window.showErrorMessage(`Failed to lock screen: ${details}`);
+            }
+        } catch (error) {
+            const msg = error instanceof Error ? error.message : String(error);
+            vscode.window.showErrorMessage(`Failed to lock screen: ${msg}`);
+        }
+    }
+
+    private async _handleOpenCamera(): Promise<void> {
+        const deviceId =
+            this._scrcpyService?.getCurrentDeviceId() ||
+            (await this._deviceManager?.getPreferredDevice()) ||
+            null;
+
+        if (!deviceId) {
+            vscode.window.showWarningMessage(
+                'No Android device connected. Connect a device (adb devices) and try again.'
+            );
+            return;
+        }
+
+        try {
+            const result = await this._adbShellService.executeCommand(
+                deviceId,
+                'am start -a android.media.action.IMAGE_CAPTURE'
+            );
+            if (result.exitCode !== 0) {
+                const details = result.stderr || result.stdout || `exitCode=${result.exitCode}`;
+                vscode.window.showErrorMessage(`Failed to open camera: ${details}`);
+            }
+        } catch (error) {
+            const msg = error instanceof Error ? error.message : String(error);
+            vscode.window.showErrorMessage(`Failed to open camera: ${msg}`);
+        }
+    }
+
+    private _handleScreenPowerToggle(screenOff: boolean): void {
+        if (!this._scrcpyService || !this._scrcpyService.isActive()) {
+            vscode.window.showWarningMessage('Connect to a device before toggling screen power.');
+            return;
+        }
+
+        // Toggle device screen: 0 = off, 2 = normal
+        this._scrcpyService.setScreenPowerMode(screenOff ? 0 : 2);
+    }
+
+    private async _handlePaste(text: string): Promise<void> {
+        console.log('[ScrcpySidebarView] _handlePaste called', {
+            textLength: text?.length ?? 0,
+            textPreview: text?.substring(0, 50) ?? 'null',
+            hasScrcpyService: !!this._scrcpyService,
+            isActive: this._scrcpyService?.isActive() ?? false,
+        });
+
+        if (!this._scrcpyService || !this._scrcpyService.isActive()) {
+            console.log('[ScrcpySidebarView] _handlePaste aborted - service not active');
+            vscode.window.showWarningMessage('Connect to a device before pasting text.');
+            return;
+        }
+
+        if (!text || text.length === 0) {
+            console.log('[ScrcpySidebarView] _handlePaste aborted - empty text');
+            return;
+        }
+
+        try {
+            console.log('[ScrcpySidebarView] Calling scrcpyService.pasteText...');
+            await this._scrcpyService.pasteText(text);
+            console.log('[ScrcpySidebarView] pasteText completed successfully');
+        } catch (error) {
+            const msg = error instanceof Error ? error.message : String(error);
+            console.error('[ScrcpySidebarView] pasteText failed:', msg);
+            vscode.window.showErrorMessage(`Failed to paste text: ${msg}`);
+        }
+    }
+
+    private async _handleShowTouches(enabled: boolean): Promise<void> {
+        const deviceId =
+            this._scrcpyService?.getCurrentDeviceId() ||
+            (await this._deviceManager?.getPreferredDevice()) ||
+            null;
+
+        if (!deviceId) {
+            vscode.window.showWarningMessage(
+                'No Android device connected. Connect a device (adb devices) and try again.'
+            );
+            return;
+        }
+
+        try {
+            const value = enabled ? '1' : '0';
+            const result = await this._adbShellService.executeCommand(
+                deviceId,
+                `settings put system show_touches ${value}`
+            );
+            if (result.exitCode !== 0) {
+                const details = result.stderr || result.stdout || `exitCode=${result.exitCode}`;
+                vscode.window.showErrorMessage(`Failed to toggle show touches: ${details}`);
+            }
+        } catch (error) {
+            const msg = error instanceof Error ? error.message : String(error);
+            vscode.window.showErrorMessage(`Failed to toggle show touches: ${msg}`);
+        }
+    }
+
+    private async _handleStayAwake(enabled: boolean): Promise<void> {
+        const deviceId =
+            this._scrcpyService?.getCurrentDeviceId() ||
+            (await this._deviceManager?.getPreferredDevice()) ||
+            null;
+
+        if (!deviceId) {
+            vscode.window.showWarningMessage(
+                'No Android device connected. Connect a device (adb devices) and try again.'
+            );
+            return;
+        }
+
+        try {
+            // 3 = stay awake while plugged in via AC, USB, or Wireless
+            // 0 = disable stay awake
+            const value = enabled ? '3' : '0';
+            const result = await this._adbShellService.executeCommand(
+                deviceId,
+                `settings put global stay_on_while_plugged_in ${value}`
+            );
+            if (result.exitCode !== 0) {
+                const details = result.stderr || result.stdout || `exitCode=${result.exitCode}`;
+                vscode.window.showErrorMessage(`Failed to toggle stay awake: ${details}`);
+            }
+        } catch (error) {
+            const msg = error instanceof Error ? error.message : String(error);
+            vscode.window.showErrorMessage(`Failed to toggle stay awake: ${msg}`);
+        }
+    }
+
+    private async _handleDarkMode(enabled: boolean): Promise<void> {
+        const deviceId =
+            this._scrcpyService?.getCurrentDeviceId() ||
+            (await this._deviceManager?.getPreferredDevice()) ||
+            null;
+
+        if (!deviceId) {
+            vscode.window.showWarningMessage(
+                'No Android device connected. Connect a device (adb devices) and try again.'
+            );
+            return;
+        }
+
+        try {
+            const mode = enabled ? 'yes' : 'no';
+            const result = await this._adbShellService.executeCommand(
+                deviceId,
+                `cmd uimode night ${mode}`
+            );
+            if (result.exitCode !== 0) {
+                const details = result.stderr || result.stdout || `exitCode=${result.exitCode}`;
+                vscode.window.showErrorMessage(`Failed to toggle dark mode: ${details}`);
+            }
+        } catch (error) {
+            const msg = error instanceof Error ? error.message : String(error);
+            vscode.window.showErrorMessage(`Failed to toggle dark mode: ${msg}`);
+        }
+    }
+
+    private async _handleScreenshot() {
+        if (!this._scrcpyService || !this._scrcpyService.isActive()) {
+            vscode.window.showWarningMessage('Connect to a device before taking a screenshot.');
+            this._view?.webview.postMessage({ type: 'screenshot-failed' });
+            return;
+        }
+
+        try {
+            const image = await this._scrcpyService.captureScreenshot();
+            // `vscode.env.clipboard` is text-only, so the webview does the write and
+            // reports back with `screenshot-copied`. Slicing to exact bounds keeps the
+            // ArrayBuffer transferable rather than cloned.
+            this._view?.webview.postMessage({
+                type: 'screenshot-data',
+                data: image.buffer.slice(
+                    image.byteOffset,
+                    image.byteOffset + image.byteLength
+                ) as ArrayBuffer,
+            });
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            vscode.window.showErrorMessage(`Failed to take screenshot: ${message}`);
+            this._view?.webview.postMessage({ type: 'screenshot-failed' });
+        }
+    }
+
+    private _handleScreenshotCopied(message: { success?: boolean; error?: string }) {
+        if (message.success) {
+            vscode.window.showInformationMessage('Screenshot copied to clipboard');
+            return;
+        }
+        vscode.window.showErrorMessage(
+            `Failed to copy screenshot: ${message.error || 'clipboard unavailable'}`
+        );
+    }
+
+    private _handleScroll(message: any) {
+        if (!this._scrcpyService) {
+            return;
+        }
+        const { x, y, deltaX, deltaY, videoWidth, videoHeight } = message;
+        this._scrcpyService.sendScroll(x, y, deltaX, deltaY, videoWidth, videoHeight);
+    }
+
+    private async _handleSelectDevice(deviceId: string) {
+        if (!this._deviceManager) {
+            return;
+        }
+
+        // If currently streaming, we need to stop and restart with new device
+        const wasStreaming = this._scrcpyService?.isActive();
+        if (wasStreaming) {
+            this._stopStreaming();
+        }
+
+        await this._deviceManager.selectDevice(deviceId);
+        this._appManager?.setDevice(deviceId);
+        this._view.webview.postMessage({
+            type: 'device-selected',
+            deviceId: deviceId,
+        });
+
+        // If was streaming, restart with new device
+        if (wasStreaming) {
+            await this._startStreaming();
+        }
+    }
+
+    private async _handleGetAppList(refresh = false) {
+        try {
+            await this._appManager?.getInstalledApps(refresh);
+        } catch (error) {
+            console.error('Failed to get app list:', error);
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            this._view.webview.postMessage({
+                type: 'error',
+                message: `Failed to load apps: ${errorMessage}`,
+            });
+            // Still send empty app list to reset loading state
+            this._view.webview.postMessage({
+                type: 'app-list',
+                apps: [],
+            });
+        }
+    }
+
+    private async _handleGetRecentApps(refresh = false) {
+        try {
+            await this._appManager?.getRecentApps(refresh);
+        } catch (error) {
+            console.error('Failed to get recent apps:', error);
+            // Send empty list on error
+            this._view.webview.postMessage({
+                type: 'recent-apps',
+                apps: [],
+            });
+        }
+    }
+
+    private async _handleGetDebugApps(refresh = false) {
+        try {
+            await this._appManager?.getDebugApps(refresh);
+        } catch (error) {
+            console.error('Failed to get debug apps:', error);
+            // Send empty list on error
+            this._view.webview.postMessage({
+                type: 'debug-apps',
+                apps: [],
+            });
+        }
+    }
+
+    private async _handleLaunchApp(packageName: string) {
+        try {
+            await this._appManager?.launchApp(packageName);
+            this._view.webview.postMessage({
+                type: 'app-launched',
+                packageName: packageName,
+            });
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            this._view.webview.postMessage({
+                type: 'error',
+                message: `Failed to launch app: ${errorMessage}`,
+            });
+        }
+    }
+
+    /** Resyncs the webview decoder after a gap in the forwarded video stream. */
+    private _resyncVideoStream(): void {
+        this._videoForwarder.resync();
+    }
+
+    public dispose() {
+        ScrcpySidebarView.currentView = undefined;
+        this._isViewVisible = false;
+        this._stopStreaming();
+        this._deviceInfoService?.dispose();
+        this._deviceInfoService = null;
+        this._deviceManager = null;
+        this._appManager?.dispose();
+        this._appManager = null;
+
+        while (this._disposables.length) {
+            const x = this._disposables.pop();
+            if (x) {
+                x.dispose();
+            }
+        }
+    }
+
+    private _getHtmlForWebview(): string {
+        const fs = require('fs');
+        const path = require('path');
+
+        // Get URIs for React build resources
+        const styleUri = this._view.webview.asWebviewUri(
+            vscode.Uri.joinPath(this._extensionUri, 'media', 'build', 'webview.css')
+        );
+        const scriptUri = this._view.webview.asWebviewUri(
+            vscode.Uri.joinPath(this._extensionUri, 'media', 'build', 'webview.js')
+        );
+
+        // Read the HTML template
+        const htmlPath = path.join(this._extensionUri.fsPath, 'media', 'webview.html');
+        let html = fs.readFileSync(htmlPath, 'utf8');
+
+        // Replace placeholders with actual URIs
+        html = html.replace(/{{styleUri}}/g, styleUri.toString());
+        html = html.replace(/{{scriptUri}}/g, scriptUri.toString());
+        html = html.replace(/{{cspSource}}/g, this._view.webview.cspSource);
+        html = html.replace(/{{viewMode}}/g, 'sidebar');
+        html = html.replace(/{{initialState}}/g, '{}');
+
+        return html;
+    }
+
+    public postMessage(message: any) {
+        this._view.webview.postMessage(message);
+    }
+}

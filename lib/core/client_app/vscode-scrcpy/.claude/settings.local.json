@@ -1,0 +1,35 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install)",
+      "Bash(npm run compile:*)",
+      "Bash(git init:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git remote add:*)",
+      "Bash(find:*)",
+      "Bash(cat:*)",
+      "Bash(grep:*)",
+      "Bash(scrcpy:*)",
+      "Bash(npm install:*)",
+      "Bash(npm run build:*)",
+      "Bash(rm:*)",
+      "Bash(npm run compile:extension:*)",
+      "Bash(npm run compile:webview:*)",
+      "Bash(C:/Scrcpy/scrcpy.exe:*)",
+      "Bash(npx tsc:*)",
+      "Bash(ls:*)",
+      "Bash(mkdir:*)",
+      "Bash(xargs:*)",
+      "Bash(dir /s \"c:\\\\MyProjects\\\\VsCodeScrcpy\")",
+      "Bash(tree:*)",
+      "Bash(dir /b \"c:\\\\MyProjects\\\\VsCodeScrcpy\\\\.claude\")",
+      "Bash(npm ls:*)",
+      "Bash(npm run typecheck:*)",
+      "Bash(npm run format:check:*)"
+    ],
+    "deny": [],
+    "ask": [],
+    "plansDirectory": ".claude/plans"
+  }
+}

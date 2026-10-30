@@ -1,0 +1,96 @@
+/* ===== VIDEO CONTAINER ===== */
+.video-container {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: var(--video-container-bg-gradient, radial-gradient(circle, rgba(238, 174, 202, 1) 0%, rgba(148, 187, 233, 1) 100%));
+  overflow: hidden;
+  position: relative;
+  order: 1;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* When device skin is off, make video container full height with black background */
+.video-container.no-device-skin {
+  padding: 0;
+  align-items: stretch;
+  background: rgba(0, 0, 0, 1.0) !important;
+}
+
+/* Descendant (not direct child) so the .zoom-content wrapper doesn't break this */
+.video-container.no-device-skin .mirror-stage {
+  width: 100%;
+  height: 100%;
+  position: relative;
+}
+
+.video-container.no-device-skin .video-canvas {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.mirror-stage {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+/* ===== ZOOM WRAPPER ===== */
+/* Scaled/panned by the zoom feature. The container clips it (overflow: hidden). */
+.zoom-content {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* Flex must not resize the skinned frame: useFrameFit already sized it to the
+     panel via --phone-height, and shrinking would break that aspect ratio. */
+  flex: 0 0 auto;
+  transform-origin: center center;
+  will-change: transform;
+  transition: transform 0.12s ease-out;
+}
+
+.video-container.no-device-skin .zoom-content {
+  flex: 1 1 auto;
+  width: 100%;
+  height: 100%;
+}
+
+/* Dragging must feel 1:1, so no easing while panning */
+.video-container.panning .zoom-content {
+  transition: none;
+}
+
+.video-container.panning,
+.video-container.panning .video-canvas {
+  cursor: grabbing;
+}
+
+/* Alt held while zoomed in - the next left-drag pans instead of touching */
+.video-container.pan-ready,
+.video-container.pan-ready .video-canvas {
+  cursor: grab;
+}
+
+/* ===== ACTIVE SCREEN (Video Canvas) ===== */
+.active-screen {
+  position: absolute;
+  inset: 0;
+}
+
+.video-canvas {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  cursor: var(--video-canvas-cursor, crosshair);
+  touch-action: none;
+}
+
+.video-canvas:focus {
+  outline: 2px solid var(--vsc-blue);
+}
