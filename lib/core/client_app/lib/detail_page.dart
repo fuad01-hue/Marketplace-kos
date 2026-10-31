@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'booking_page.dart';
+import 'chat/chat_room_page.dart';
 
 class DetailPage extends StatelessWidget {
   final Map<String, dynamic> kostData;
@@ -333,10 +334,16 @@ class DetailPage extends StatelessWidget {
                         height: 44,
                         child: OutlinedButton(
                           onPressed: () {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('Membuka chat dengan pemilik...'),
-                                duration: Duration(seconds: 1),
+                            // Mengambil nama kos yang sedang dilihat (default 'Kost Meranti')
+                            final namaKos = kostData?['name'] ?? 'Kost Meranti';
+
+                            // Navigasi langsung membuka ruang chat
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => ChatRoomPage(
+                                  name: 'Pemilik $namaKos',
+                                ),
                               ),
                             );
                           },

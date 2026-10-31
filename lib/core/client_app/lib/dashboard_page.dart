@@ -4,8 +4,6 @@ import 'notification_screen.dart';
 import 'profile_screen.dart';
 import 'search_page.dart';
 
-import 'profil.dart';
-
 class DashboardPage extends StatefulWidget {
   final bool isFavoriteView;
 
@@ -20,7 +18,7 @@ class DashboardPage extends StatefulWidget {
 
 class _DashboardPageState extends State<DashboardPage> {
   String _selectedCategory = 'Semua';
-  String _searchQuery = '';
+  final String _searchQuery = '';
 
   final List<String> _categories = [
     'Semua',
@@ -29,12 +27,12 @@ class _DashboardPageState extends State<DashboardPage> {
     'Campur',
   ];
 
-  final List<Map<String, dynamic>> _allKosts = [
+  static final List<Map<String, dynamic>> _allKosts = [
     {
       'name': 'Kost Meranti',
       'location': 'Kota Lhokseumawe',
       'price': 'Rp. 700.000,00 / Bulan',
-      'favPrice': 'Rp. 500.000,00 / Bulan',
+      'favPrice': 'Rp. 700.000,00 / Bulan',
       'type': 'Perempuan',
       'image': 'assets/Kost-meranti.png',
       'isFavorite': true,
@@ -43,7 +41,7 @@ class _DashboardPageState extends State<DashboardPage> {
       'name': 'Kost Mahogani',
       'location': 'Kota Lhokseumawe',
       'price': 'Rp. 700.000,00 / Bulan',
-      'favPrice': 'Rp. 500.000,00 / Bulan',
+      'favPrice': 'Rp. 700.000,00 / Bulan',
       'type': 'Laki - Laki',
       'image': 'assets/Kost-Mahogani.png',
       'isFavorite': true,
@@ -63,7 +61,7 @@ class _DashboardPageState extends State<DashboardPage> {
   Widget build(BuildContext context) {
     final bool isFav = widget.isFavoriteView;
 
-    // Filter data berdasarkan tab favorit, filter chip kategori, dan pencarian
+    // Filter data berdasarkan tab favorit, kategori, dan kata kunci pencarian
     final filteredKosts = _allKosts.where((kost) {
       final matchesSearch = kost['name']
           .toString()
@@ -71,7 +69,7 @@ class _DashboardPageState extends State<DashboardPage> {
           .contains(_searchQuery.toLowerCase());
 
       if (isFav) {
-        return kost['isFavorite'] == true && matchesSearch;
+        return (kost['isFavorite'] == true) && matchesSearch;
       }
 
       final matchesCategory = _selectedCategory == 'Semua' ||
@@ -83,10 +81,10 @@ class _DashboardPageState extends State<DashboardPage> {
       backgroundColor: const Color(0xFFF6F8FB),
       body: Column(
         children: [
-          // 1. Header & Search Bar
+          // 1. Header & Bar Pencarian
           _buildHeader(isFav),
 
-          // 2. Filter Kategori (Hanya muncul di Beranda biasa)
+          // 2. Filter Kategori (Hanya ditampilkan pada Beranda utama)
           if (!isFav) ...[
             const SizedBox(height: 12),
             _buildCategoryFilter(),
@@ -94,7 +92,7 @@ class _DashboardPageState extends State<DashboardPage> {
 
           const SizedBox(height: 12),
 
-          // 3. List Kos
+          // 3. Daftar Kartu Kos
           Expanded(
             child: filteredKosts.isEmpty
                 ? Center(
@@ -107,6 +105,7 @@ class _DashboardPageState extends State<DashboardPage> {
                   )
                 : ListView.builder(
                     padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                    physics: const BouncingScrollPhysics(),
                     itemCount: filteredKosts.length,
                     itemBuilder: (context, index) {
                       final kost = filteredKosts[index];
@@ -156,7 +155,7 @@ class _DashboardPageState extends State<DashboardPage> {
                 : Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Navigasi ke Halaman Profil
+                      // Tombol Menuju Profil Pengguna
                       GestureDetector(
                         onTap: () {
                           Navigator.push(
@@ -185,10 +184,9 @@ class _DashboardPageState extends State<DashboardPage> {
                           ],
                         ),
                       ),
-
                       const Spacer(),
 
-                      // Navigasi ke Halaman Notifikasi
+                      // Tombol Menuju Notifikasi
                       Stack(
                         children: [
                           IconButton(
@@ -225,7 +223,7 @@ class _DashboardPageState extends State<DashboardPage> {
                   ),
           ),
 
-          // Search Bar Melayang
+          // Kolom Pencarian Melayang
           Positioned(
             bottom: 0,
             left: 20,
@@ -237,7 +235,7 @@ class _DashboardPageState extends State<DashboardPage> {
                 borderRadius: BorderRadius.circular(12),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.08),
+                    color: Colors.black.withValues(alpha: 0.08),
                     blurRadius: 10,
                     offset: const Offset(0, 4),
                   ),
@@ -246,11 +244,10 @@ class _DashboardPageState extends State<DashboardPage> {
               child: TextField(
                 readOnly: true,
                 onTap: () {
-                  // Navigasi ke halaman pencarian
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (context) => SearchPage(),
+                      builder: (context) => const SearchPage(),
                     ),
                   );
                 },
@@ -325,7 +322,7 @@ class _DashboardPageState extends State<DashboardPage> {
           borderRadius: BorderRadius.circular(16),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.06),
+              color: Colors.black.withValues(alpha: 0.06),
               blurRadius: 8,
               offset: const Offset(0, 3),
             ),
@@ -334,101 +331,98 @@ class _DashboardPageState extends State<DashboardPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: Image.asset(
-                kost['image'],
-                height: 150,
-                width: double.infinity,
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) => Container(
-                  height: 150,
+            // Gambar Kos
+            // Gambar Kos + Tombol Love
+          Stack(
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: Image.asset(
+                  kost['image'].toString(),
                   width: double.infinity,
-                  color: Colors.grey.shade300,
-                  alignment: Alignment.center,
-                  child: const Icon(Icons.home_work_outlined, size: 40, color: Colors.grey),
+                  height: 160,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => Container(
+                    height: 160,
+                    color: Colors.grey.shade200,
+                    child: const Icon(Icons.home, size: 40, color: Colors.grey),
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: 10),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  kost['name'],
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
+
+              // Tombol Love Bulat Putih (Pojok Kanan Atas Foto)
+              Positioned(
+                top: 8,
+                right: 8,
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(20),
+                    onTap: () {
+                      setState(() {
+                        kost['isFavorite'] = !(kost['isFavorite'] ?? false);
+                      });
+
+                      final bool isFavNow = kost['isFavorite'] ?? false;
+                      ScaffoldMessenger.of(context).clearSnackBars();
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            isFavNow
+                                ? '${kost['name']} disimpan ke favorit'
+                                : '${kost['name']} dihapus dari favorit',
+                          ),
+                          duration: const Duration(seconds: 1),
+                          behavior: SnackBarBehavior.floating,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                      );
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.all(7),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.92),
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.18),
+                            blurRadius: 6,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: Icon(
+                        (kost['isFavorite'] ?? false)
+                            ? Icons.favorite
+                            : Icons.favorite_border,
+                        color: (kost['isFavorite'] ?? false)
+                            ? const Color(0xFFEF4444)
+                            : Colors.grey.shade600,
+                        size: 20,
+                      ),
+                    ),
                   ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 4),
+            const SizedBox(height: 10),
 
-          // Lokasi
-          Text(
-            kost['location'],
-            style: const TextStyle(fontSize: 11, color: Colors.black54),
-          ),
-          const SizedBox(height: 6),
-
-          // Harga
-          Text(
-            isFavoriteTab ? kost['favPrice'] : kost['price'],
-            style: const TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.bold,
-              color: Color(0xFF1E88E5),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildBottomNav() {
-    final items = [
-      {'icon': Icons.search, 'label': 'Cari'},
-      {'icon': Icons.favorite_border, 'label': 'Favorit'},
-      {'icon': Icons.home_outlined, 'label': 'Beranda'},
-      {'icon': Icons.chat_bubble_outline, 'label': 'Chat'},
-      {'icon': Icons.person_outline, 'label': 'Profil'},
-    ];
-
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.06),
-            blurRadius: 10,
-            offset: const Offset(0, -2),
-          ),
-        ],
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: List.generate(items.length, (index) {
-          final isSelected = _selectedNavIndex == index;
-          return GestureDetector(
-            onTap: () {
-              if (index == 4) {
-                // Navigasi ke TampilanProfil jika ikon ke-5 (indeks 4) diklik
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => TampilanProfil()),
-                );
-              } else {
-                setState(() => _selectedNavIndex = index);
-              }
-            },
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
+            // Nama Kos & Badge Tipe
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
+                Expanded(
+                  child: Text(
+                    kost['name'].toString(),
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
                   decoration: BoxDecoration(
@@ -436,7 +430,7 @@ class _DashboardPageState extends State<DashboardPage> {
                     border: Border.all(color: const Color(0xFF42A5F5)),
                   ),
                   child: Text(
-                    kost['type'],
+                    kost['type'].toString(),
                     style: const TextStyle(
                       fontSize: 10,
                       fontWeight: FontWeight.w600,
@@ -447,13 +441,17 @@ class _DashboardPageState extends State<DashboardPage> {
               ],
             ),
             const SizedBox(height: 4),
+
+            // Lokasi
             Text(
-              kost['location'],
+              kost['location'].toString(),
               style: const TextStyle(fontSize: 11, color: Colors.black54),
             ),
             const SizedBox(height: 6),
+
+            // Harga Sewa (Menyesuaikan tab favorit atau reguler)
             Text(
-              isFav ? kost['favPrice'] : kost['price'],
+              (isFav ? (kost['favPrice'] ?? kost['price']) : kost['price']).toString(),
               style: const TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.bold,
