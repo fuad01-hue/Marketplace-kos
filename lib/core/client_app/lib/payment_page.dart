@@ -2,12 +2,13 @@ import 'package:flutter/material.dart';
 import 'main_screen.dart';
 
 class PaymentPage extends StatefulWidget {
+  // Tambahkan deklarasi properti berikut:
   final dynamic kostData;
   final String? namaPenyewa;
   final String? jadwalMasuk;
   final String? jadwalKeluar;
   final String? kostName;
-  final String? nominal;
+  final dynamic nominal;
 
   const PaymentPage({
     super.key,
