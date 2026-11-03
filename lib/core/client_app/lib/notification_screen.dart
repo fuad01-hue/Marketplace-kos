@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'detail_pembayaran_page.dart';
 
 class NotificationScreen extends StatefulWidget {
   const NotificationScreen({super.key});
@@ -90,6 +91,28 @@ class _NotificationScreenState extends State<NotificationScreen> {
         _notifications[index]['isUnread'] = false;
       }
     });
+  }
+
+  // 3. NAVIGASI KE DETAIL PEMBAYARAN JIKA NOTIFIKASI BERUPA PEMBAYARAN
+  void _bukaDetailNotifikasi(Map<String, dynamic> item) {
+    final int id = item['id'] as int;
+    _bacaNotifikasi(id);
+
+    final String title = item['title'].toString().toLowerCase();
+    final String desc = item['desc'].toString().toLowerCase();
+    final String category = item['category'].toString();
+
+    if (title.contains('pembayaran') ||
+        title.contains('bayar') ||
+        desc.contains('pembayaran') ||
+        category == 'Booking') {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => const DetailPembayaranPage(),
+        ),
+      );
+    }
   }
 
   @override
@@ -256,10 +279,8 @@ class _NotificationScreenState extends State<NotificationScreen> {
 
   Widget _buildNotificationTile(Map<String, dynamic> item) {
     final bool isUnread = item['isUnread'] as bool;
-    final int id = item['id'] as int;
-
     return InkWell(
-      onTap: () => _bacaNotifikasi(id),
+      onTap: () => _bukaDetailNotifikasi(item),
       borderRadius: BorderRadius.circular(12),
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 10),

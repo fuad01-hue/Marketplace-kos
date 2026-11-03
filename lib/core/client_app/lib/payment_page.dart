@@ -60,14 +60,12 @@ class _PaymentPageState extends State<PaymentPage> {
 
   // Ekstraksi total bayar secara dinamis
   String _getHarga() {
+    // 1. Cek apakah ada nominal yang dikirim dari BookingPage
     if (widget.nominal != null && widget.nominal!.isNotEmpty) {
       return widget.nominal!;
     }
-    if (widget.kostData != null && widget.kostData is Map) {
-      final price = widget.kostData['price'] ?? widget.kostData['harga'];
-      if (price != null) return price.toString();
-    }
-    return 'Rp 1.900.000';
+    // 2. Fallback default jika tidak ada data
+    return widget.kostData?['price']?.toString() ?? 'Rp. 700.000,00 / Bulan';
   }
 
   void _handleBack() {
